@@ -1,4 +1,4 @@
-# Python bytecode (añadimos los asteriscos para que busque en todas las carpetas)
+# Python bytecode 
 **/__pycache__/
 *.pyc
 
