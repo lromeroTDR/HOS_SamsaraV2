@@ -1,0 +1,30 @@
+
+pytz==2024.1
+
+# Una librería que proporciona un conjunto de certificados raíz de confianza.
+# `requests` la utiliza para verificar la autenticidad de los servidores a los que se conecta (HTTPS).
+certifi==2025.8.3
+
+# Una librería que ayuda a `requests` a detectar y normalizar la codificación de caracteres
+# del contenido de una respuesta HTTP.
+charset-normalizer==3.4.3
+
+# Dependencia de `requests`. Proporciona soporte para nombres de dominio internacionalizados (IDNs).
+idna==3.10
+
+# El driver ODBC para Python. Es la librería clave que permite al script
+# conectarse y ejecutar consultas en bases de datos como Microsoft SQL Server.
+pyodbc==5.2.0
+
+# Permite cargar variables de entorno desde un archivo `.env`.
+python-dotenv==1.1.1
+
+# La librería principal para hacer peticiones HTTP en Python. Se usa para comunicarse
+# con la API de Samsara (obtener vehículos y viajes).
+requests==2.32.5
+
+# Una potente librería cliente HTTP para Python. `requests` se basa en ella
+# para manejar las conexiones, los pools de conexiones y las peticiones a bajo nivel.
+urllib3==2.5.0
+
+pandas

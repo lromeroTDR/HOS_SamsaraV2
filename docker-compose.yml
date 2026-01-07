@@ -1,0 +1,10 @@
+version: '3.8'
+
+services:
+  etl-app:
+    build: .
+    container_name: etl-local
+    environment:
+      - BD_SERVER=${BD_SERVER}
+    env_file:
+      - .env

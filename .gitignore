@@ -1,0 +1,12 @@
+# Python bytecode (añadimos los asteriscos para que busque en todas las carpetas)
+**/__pycache__/
+*.pyc
+
+# Entorno virtual
+venv/
+
+# Variables de entorno
+.env
+
+# Archivos de Docker innecesarios
+dockerfile.txt
