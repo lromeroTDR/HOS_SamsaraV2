@@ -169,8 +169,8 @@ def request_time(session: requests.Session, api_url: str, asset: Dict, start_ms:
             return 0
         all_trips.sort(key=lambda x: x.get('startMs', 0))
         stopped_time_ms = 0
-        #three_hours_in_ms = 3 * 60 * 60 * 1000
-        three_hours_in_ms = 0
+        three_hours_in_ms = 3 * 60 * 60 * 1000
+        #three_hours_in_ms = 0
         for i in range(len(all_trips) - 1):
             end_current = all_trips[i].get('endMs')
             start_next = all_trips[i+1].get('startMs')
