@@ -1,17 +1,12 @@
-# .github/workflows/run_etl.yml
 name: Ejecutar ETL cada hora
-
 on:
+  workflow_dispatch:
   schedule:
-    # Se ejecuta al minuto 0 de cada hora
-    - cron: '0 * * * *'
-  workflow_dispatch: # Permite ejecución manual
-
+    - cron: '0 * * * *'    
 # Esto evita que dos procesos corran al mismo tiempo y causen conflictos
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
-
 jobs:
   build-and-commit:
     runs-on: ubuntu-latest
