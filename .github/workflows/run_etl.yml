@@ -3,9 +3,13 @@ name: Ejecutar ETL cada hora
 
 on:
   schedule:
-    # Se ejecuta a la hora 0 de cada hora (e.g., 01:00, 02:00, etc.)
     - cron: '0 * * * *'
-  workflow_dispatch: # Permite la ejecución manual desde la pestaña de Actions en GitHub
+  workflow_dispatch:
+
+# EVITA CONFLICTOS: Solo permite que un proceso ETL corra a la vez
+concurrency:
+  group: etl-group
+  cancel-in-progress: false
 
 jobs:
   build-and-commit:
@@ -13,11 +17,13 @@ jobs:
     steps:
       - name: 1. Checkout del repositorio
         uses: actions/checkout@v3
+        with:
+          fetch-depth: 0 # Descarga todo el historial para evitar errores de rebase
 
       - name: 2. Configurar entorno de Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.9' # Puedes ajustar la versión según tu necesidad
+          python-version: '3.9'
 
       - name: 3. Instalar dependencias
         run: |
@@ -26,19 +32,29 @@ jobs:
 
       - name: 4. Ejecutar el script ETL
         env:
-          # Estos secretos deben ser configurados en GitHub
-          # Ve a tu repositorio > Settings > Secrets and variables > Actions > New repository secret
           API_TOKEN: ${{ secrets.API_TOKEN }}
           API_URL_TRIPS: ${{ secrets.API_URL_TRIPS }}
           API_URL_ASSETS: ${{ secrets.API_URL_ASSETS }}
           SAMSARA_TAGS_URL: ${{ secrets.SAMSARA_TAGS_URL }}
         run: python temporal.py
 
-      - name: 5. Hacer commit del archivo CSV
+      - name: 5. Sincronizar y Subir cambios
         run: |
           git config --global user.name 'github-actions[bot]'
           git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+          
           git add data/resultado_etl.csv
-          # Solo hace commit si hay cambios en el archivo
-          git diff --staged --quiet || git commit -m "Actualización automática de datos ETL"
-          git push
+          
+          # Si no hay cambios, termina el proceso sin error
+          if git diff --staged --quiet; then
+            echo "No hay cambios en los datos. Saltando push."
+            exit 0
+          fi
+          
+          git commit -m "Actualización automática de datos ETL"
+          
+          # SOLUCIÓN AL ERROR: Trae cambios remotos que pudieron ocurrir mientras corría python
+          git pull --rebase origin Rama-tiempo-detenido
+          
+          # Empuja específicamente a tu rama
+          git push origin Rama-tiempo-detenido
