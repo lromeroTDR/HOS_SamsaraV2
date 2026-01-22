@@ -1,8 +1,13 @@
 name: Ejecutar ETL cada hora
 on:
-  workflow_dispatch:
+  # Cambiamos el orden para que GitHub priorice la lectura del cron
   schedule:
-    - cron: '0 * * * *'    
+    - cron: '0 * * * *'
+  workflow_dispatch:
+  # Añadimos este trigger para que cada vez que hagas push, GitHub revise el cron
+  push:
+    branches:
+      - Rama-tiempo-detenido  
 # Esto evita que dos procesos corran al mismo tiempo y causen conflictos
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
