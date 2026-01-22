@@ -1,12 +1,15 @@
+# .github/workflows/run_etl.yml
 name: Ejecutar ETL cada hora
 
 on:
   schedule:
+    # Se ejecuta al minuto 0 de cada hora
     - cron: '0 * * * *'
-  workflow_dispatch:
+  workflow_dispatch: # Permite ejecución manual
 
+# Esto evita que dos procesos corran al mismo tiempo y causen conflictos
 concurrency:
-  group: etl-group
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -16,7 +19,8 @@ jobs:
       - name: 1. Checkout del repositorio
         uses: actions/checkout@v3
         with:
-          fetch-depth: 0 # ### FIX: Necesario para que el rebase funcione
+          # Descarga todo el historial para que el rebase no falle
+          fetch-depth: 0
 
       - name: 2. Configurar entorno de Python
         uses: actions/setup-python@v4
@@ -26,7 +30,7 @@ jobs:
       - name: 3. Instalar dependencias
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
       - name: 4. Ejecutar el script ETL
         env:
@@ -36,22 +40,28 @@ jobs:
           SAMSARA_TAGS_URL: ${{ secrets.SAMSARA_TAGS_URL }}
         run: python temporal.py
 
-      - name: 5. Sincronizar y Subir cambios
+      - name: 5. Sincronizar y Forzar subida de datos
         run: |
           git config --global user.name 'github-actions[bot]'
           git config --global user.email 'github-actions[bot]@users.noreply.github.com'
           
+          # Añadir el archivo CSV resultante
           git add data/resultado_etl.csv
           
-          # No hacer nada si el archivo no cambió
+          # Si no hay cambios, terminar pacíficamente
           if git diff --staged --quiet; then
-            echo "Sin cambios detectados."
+            echo "No hay cambios en los datos. Finalizando..."
             exit 0
           fi
           
+          # Crear el commit
           git commit -m "Actualización automática de datos ETL"
           
-          # ### FIX: -X theirs obliga a aceptar tus datos nuevos si hay conflicto
+          # LA SOLUCIÓN DEFINITIVA: 
+          # Pull con rebase usando la estrategia 'theirs'. 
+          # En un rebase, 'theirs' significa que tus cambios locales (el nuevo ETL) 
+          # tienen prioridad sobre lo que esté en el servidor.
           git pull --rebase -X theirs origin Rama-tiempo-detenido
           
+          # Push final a la rama
           git push origin Rama-tiempo-detenido
