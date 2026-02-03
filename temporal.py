@@ -183,6 +183,7 @@ def request_time(session: requests.Session, api_url: str, asset: Dict, start_ms:
     return total_seconds
 
 # --- FUNCIÓN PRINCIPAL DE ORQUESTACIÓN ---
+
 def run_etl():
     """
     Orquesta el proceso de ETL: Extrae, Transforma y Guarda en CSV.
@@ -209,23 +210,22 @@ def run_etl():
     proyectos_lookup = {}
     
     if not df_proyectos.empty:
-        # ELIMINAR DUPLICADOS EN PROYECTOS (Solución al ValueError)
-        df_proyectos['name'] = df_proyectos['name'].str.strip()
+        # --- SOLUCIÓN AQUÍ: Eliminar duplicados antes de la línea 213 ---
         df_proyectos = df_proyectos.drop_duplicates(subset=['name'], keep='first')
         proyectos_lookup = df_proyectos.set_index('name')[['Proyecto', 'EC']].to_dict('index')
     
-    # Obtener y limpiar vehículos (assets)
+    # Obtener todos los vehículos
     assets_raw = obtain_assets(session, API_URL_ASSETS, headers)
+    
+    # --- LIMPIEZA DE ASSETS ---
     if assets_raw:
         df_assets_temp = pd.DataFrame(assets_raw)
-        df_assets_temp['name'] = df_assets_temp['name'].str.strip()
-        # Eliminar duplicados de vehículos
         df_assets_temp = df_assets_temp.drop_duplicates(subset=['name'], keep='first')
         assets = df_assets_temp.to_dict('records')
     else:
         assets = []
 
-    logging.info(f"Se procesarán {len(assets)} vehículos únicos.")
+    logging.info(f"Se obtuvieron {len(assets)} vehículos únicos.")
     
     # Procesar cada vehículo
     processed_data = []
@@ -234,6 +234,7 @@ def run_etl():
         travel_secs = request_time(session, API_URL_TRIPS, asset, start_ms, end_ms, headers, 'travel')
         stopped_secs = request_time(session, API_URL_TRIPS, asset, start_ms, end_ms, headers, 'stopped')
         
+        # Búsqueda segura en el diccionario
         proyecto_data = proyectos_lookup.get(asset_name, {})
         proyecto = proyecto_data.get('Proyecto')
         ec = proyecto_data.get('EC')
@@ -257,7 +258,7 @@ def run_etl():
         df_final = pd.DataFrame(processed_data)
         os.makedirs(os.path.dirname(OUTPUT_CSV_PATH), exist_ok=True)
         df_final.to_csv(OUTPUT_CSV_PATH, index=False, encoding='utf-8')
-        logging.info(f"Proceso completado. Se guardaron {len(df_final)} registros.")
+        logging.info(f"Proceso completado con {len(df_final)} registros.")
     else:
         logging.warning("No se procesaron datos.")
 
