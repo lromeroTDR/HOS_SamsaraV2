@@ -11,21 +11,17 @@ from typing import Dict, List, Tuple
 from dotenv import load_dotenv
 
 # --- CONFIGURACIÓN INICIAL ---
-# Carga de variables de entorno desde un archivo .env para desarrollo local.
 load_dotenv()
-
-# Configuración básica del logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
 # --- VARIABLES DE ENTORNO Y CONSTANTES ---
-# Lectura de URLs y tokens desde el entorno. Es crucial que estas variables estén definidas.
 API_TOKEN = os.getenv("API_TOKEN")
 API_URL_TRIPS = os.getenv("API_URL_TRIPS")
 API_URL_ASSETS = os.getenv("API_URL_ASSETS")
 SAMSARA_TAGS_URL = os.getenv("SAMSARA_TAGS_URL")
-OUTPUT_CSV_PATH = "data/resultado_etl.csv"  # Ruta de salida para el archivo CSV
+OUTPUT_CSV_PATH = "data/resultado_etl.csv"
 
-# Validación de que las variables de entorno necesarias están presentes.
+# Validación de variables
 required_vars = ["API_TOKEN", "API_URL_TRIPS", "API_URL_ASSETS", "SAMSARA_TAGS_URL"]
 missing_vars = [var for var in required_vars if not globals()[var]]
 if missing_vars:
@@ -33,41 +29,35 @@ if missing_vars:
     logging.error(error_message)
     raise EnvironmentError(error_message)
 
-# --- FUNCIONES DE AUTENTICACIÓN Y UTILIDAD DE TIEMPO (Extraídas) ---
+# --- FUNCIONES DE UTILIDAD ---
 
 def auth_headers() -> Dict[str, str]:
-    """Crea el diccionario de cabeceras para la autenticación en la API de Samsara."""
     return {
         "accept": "application/json",
         "authorization": "Bearer " + API_TOKEN
     }
 
 def dt_to_ms(dt: datetime) -> int:
-    """Convierte un objeto datetime de Python a milisegundos en UTC."""
     if dt.tzinfo is None:
         dt = pytz.utc.localize(dt)
     else:
         dt = dt.astimezone(pytz.utc)
     return int(dt.timestamp() * 1000)
 
-# --- FUNCIONES DE EXTRACCIÓN DE DATOS DE SAMSARA (Extraídas) ---
+# --- FUNCIONES DE EXTRACCIÓN Y TRANSFORMACIÓN ---
 
 def transformar_tags(df_tags: pd.DataFrame) -> pd.DataFrame:
-    """Filtra y transforma los tags para obtener Proyecto y EC por vehículo."""
     lista_EC: List[str] = [f"EC-{str(i).zfill(2)}" for i in range(1, 11)]
     
     if "parentTag.name" not in df_tags.columns:
-        logging.warning("No se encuentra la columna 'parentTag.name' para filtrar por EC.")
         return pd.DataFrame()
 
     df_filtrado = df_tags[df_tags["parentTag.name"].isin(lista_EC)].copy()
     if df_filtrado.empty:
-        logging.warning("No se encontraron tags que coincidan con los equipos colaborativos (EC).")
         return pd.DataFrame()
     
     df_explotado = df_filtrado.explode("vehicles").dropna(subset=['vehicles'])
     if df_explotado.empty:
-        logging.warning("Los tags de EC filtrados no tienen vehículos asociados.")
         return pd.DataFrame()
 
     res = pd.concat([
@@ -79,35 +69,31 @@ def transformar_tags(df_tags: pd.DataFrame) -> pd.DataFrame:
     return res
 
 def obtener_datos_proyectos_ec(headers: Dict[str, str], url: str) -> pd.DataFrame:
-    """Orquesta la obtención y transformación de tags de Samsara."""
     logging.info("Iniciando la obtención de datos de Proyectos y EC desde Samsara...")
     try:
         response = requests.get(url, headers=headers)
         response.raise_for_status()
         data = response.json().get('data', [])
         if not data:
-            logging.warning("La API de Samsara no devolvió tags.")
             return pd.DataFrame()
 
         df_tags = pd.json_normalize(data, sep='.')
-        df_tags = df_tags.rename(columns={'id': 'tagId', 'name': 'tagName', 'parentTagId': 'parentTagId'})
+        df_tags = df_tags.rename(columns={'id': 'tagId', 'name': 'tagName'})
         
         df_proyectos = transformar_tags(df_tags)
         if not df_proyectos.empty:
             return df_proyectos[['Proyecto', 'EC', 'id', 'name']]
         return pd.DataFrame()
-    except requests.exceptions.RequestException as e:
-        logging.error(f"ERROR al obtener o procesar los tags de Samsara: {e}")
+    except Exception as e:
+        logging.error(f"Error en obtener_datos_proyectos_ec: {e}")
         return pd.DataFrame()
 
 def obtain_assets(session: requests.Session, api_url_assets: str, headers: dict) -> List[Dict]:
-    """Obtiene la lista de todos los vehículos (assets) manejando paginación."""
     after = None
-    data: List[Dict] = []
+    data = []
     while True:
         params = {"type": "vehicle"}
-        if after:
-            params["after"] = after
+        if after: params["after"] = after
         try:
             r = session.get(api_url_assets, headers=headers, params=params, timeout=30)
             r.raise_for_status()
@@ -121,27 +107,22 @@ def obtain_assets(session: requests.Session, api_url_assets: str, headers: dict)
                 after = pag.get("endCursor")
             else:
                 break
-        except requests.exceptions.RequestException as e:
-            logging.error(f"Error de red al consultar API Assets: {e}")
+        except Exception as e:
+            logging.error(f"Error en obtain_assets: {e}")
             break
     return data
 
 def request_time(session: requests.Session, api_url: str, asset: Dict, start_ms: int, end_ms: int, headers: dict, mode: str) -> int:
-    """Función genérica para calcular tiempo de viaje o de parada."""
     after = None
     total_seconds = 0
     all_trips = []
-
     params = {"vehicleId": asset["id"], "startMs": start_ms, "endMs": end_ms}
 
     while True:
-        if after:
-            params["after"] = after
+        if after: params["after"] = after
         try:
             r = session.get(api_url, headers=headers, params=params, timeout=30)
-            if r.status_code != 200:
-                logging.error(f"Error en API para {asset.get('name')} ({mode}): status={r.status_code} body={r.text}")
-                return 0
+            if r.status_code != 200: return 0
             
             body = r.json()
             trips = body.get('trips', [])
@@ -160,17 +141,13 @@ def request_time(session: requests.Session, api_url: str, asset: Dict, start_ms:
                 after = pag.get("endCursor")
             else:
                 break
-        except requests.exceptions.RequestException as e:
-            logging.error(f"Error de red en API para {asset.get('name')} ({mode}): {e}")
+        except Exception:
             return 0
     
-    if mode == 'stopped':
-        if not all_trips:
-            return 0
+    if mode == 'stopped' and all_trips:
         all_trips.sort(key=lambda x: x.get('startMs', 0))
         stopped_time_ms = 0
         three_hours_in_ms = 3 * 60 * 60 * 1000
-        #three_hours_in_ms = 0
         for i in range(len(all_trips) - 1):
             end_current = all_trips[i].get('endMs')
             start_next = all_trips[i+1].get('startMs')
@@ -182,15 +159,11 @@ def request_time(session: requests.Session, api_url: str, asset: Dict, start_ms:
             
     return total_seconds
 
-# --- FUNCIÓN PRINCIPAL DE ORQUESTACIÓN ---
+# --- ORQUESTACIÓN ---
 
 def run_etl():
-    """
-    Orquesta el proceso de ETL: Extrae, Transforma y Guarda en CSV.
-    """
     logging.info("Iniciando proceso de ETL.")
     
-    # --- 1. Definir Rango de Tiempo ---
     mexico_tz = pytz.timezone("America/Mexico_City")
     now_utc = datetime.now(pytz.utc)
     start_of_day_local = datetime.now(mexico_tz).replace(hour=0, minute=0, second=0, microsecond=0)
@@ -199,47 +172,39 @@ def run_etl():
     start_ms = dt_to_ms(start_of_day_utc)
     end_ms = dt_to_ms(now_utc)
     
-    logging.info(f"Rango de procesamiento: {start_of_day_utc.strftime('%Y-%m-%d %H:%M:%S')} UTC a {now_utc.strftime('%Y-%m-%d %H:%M:%S')} UTC")
-
-    # --- 2. Extracción y Transformación ---
     headers = auth_headers()
     session = requests.Session()
     
-    # Obtener datos de proyectos
+    # 1. Obtener y limpiar proyectos (ELIMINA DUPLICADOS AQUÍ)
     df_proyectos = obtener_datos_proyectos_ec(headers, SAMSARA_TAGS_URL)
     proyectos_lookup = {}
     
     if not df_proyectos.empty:
-        # --- SOLUCIÓN AQUÍ: Eliminar duplicados antes de la línea 213 ---
+        # Limpieza crucial para evitar ValueError: index must be unique
+        df_proyectos['name'] = df_proyectos['name'].astype(str).str.strip()
         df_proyectos = df_proyectos.drop_duplicates(subset=['name'], keep='first')
         proyectos_lookup = df_proyectos.set_index('name')[['Proyecto', 'EC']].to_dict('index')
     
-    # Obtener todos los vehículos
+    # 2. Obtener y limpiar vehículos (assets)
     assets_raw = obtain_assets(session, API_URL_ASSETS, headers)
-    
-    # --- LIMPIEZA DE ASSETS ---
     if assets_raw:
-        df_assets_temp = pd.DataFrame(assets_raw)
-        df_assets_temp = df_assets_temp.drop_duplicates(subset=['name'], keep='first')
-        assets = df_assets_temp.to_dict('records')
+        df_assets = pd.DataFrame(assets_raw)
+        df_assets['name'] = df_assets['name'].astype(str).str.strip()
+        df_assets = df_assets.drop_duplicates(subset=['name'], keep='first')
+        assets = df_assets.to_dict('records')
     else:
         assets = []
 
-    logging.info(f"Se obtuvieron {len(assets)} vehículos únicos.")
+    logging.info(f"Procesando {len(assets)} vehículos únicos.")
     
-    # Procesar cada vehículo
     processed_data = []
     for i, asset in enumerate(assets):
         asset_name = asset['name']
         travel_secs = request_time(session, API_URL_TRIPS, asset, start_ms, end_ms, headers, 'travel')
         stopped_secs = request_time(session, API_URL_TRIPS, asset, start_ms, end_ms, headers, 'stopped')
         
-        # Búsqueda segura en el diccionario
-        proyecto_data = proyectos_lookup.get(asset_name, {})
-        proyecto = proyecto_data.get('Proyecto')
-        ec = proyecto_data.get('EC')
-
-        logging.info(f"Procesando {i+1}/{len(assets)}: {asset_name} - Viaje: {travel_secs}s, Detenido: {stopped_secs}s")
+        # Búsqueda en el lookup de proyectos
+        p_info = proyectos_lookup.get(asset_name, {})
         
         processed_data.append({
             "asset_id": asset['id'],
@@ -248,20 +213,18 @@ def run_etl():
             "travel_time_str": str(timedelta(seconds=travel_secs)),
             "stopped_seconds": stopped_secs,
             "stopped_time_str": str(timedelta(seconds=stopped_secs)),
-            "proyecto": proyecto,
-            "ec": ec,
+            "proyecto": p_info.get('Proyecto'),
+            "ec": p_info.get('EC'),
             "fecha_procesamiento": start_of_day_utc.strftime('%Y-%m-%d')
         })
+        logging.info(f"Progreso: {i+1}/{len(assets)} - {asset_name}")
         
-    # --- 3. Carga ---
+    # 3. Guardar resultados
     if processed_data:
         df_final = pd.DataFrame(processed_data)
         os.makedirs(os.path.dirname(OUTPUT_CSV_PATH), exist_ok=True)
         df_final.to_csv(OUTPUT_CSV_PATH, index=False, encoding='utf-8')
-        logging.info(f"Proceso completado con {len(df_final)} registros.")
-    else:
-        logging.warning("No se procesaron datos.")
+        logging.info(f"Éxito: {len(df_final)} registros guardados.")
 
-# --- PUNTO DE ENTRADA DEL SCRIPT ---
 if __name__ == "__main__":
     run_etl()
