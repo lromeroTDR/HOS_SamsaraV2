@@ -215,6 +215,14 @@ def run_etl():
     # Obtener todos los vehículos.
     assets = obtain_assets(session, API_URL_ASSETS, headers)
     logging.info(f"Se obtuvieron {len(assets)} vehículos.")
+
+    # FIX: Eliminar assets duplicados por nombre antes de procesarlos.
+    # Se convierte la lista a un diccionario usando 'name' como clave para eliminar duplicados.
+    # Se usa reversed para mantener la primera aparición de cada nombre en la lista original.
+    unique_assets_dict = {asset['name']: asset for asset in reversed(assets)}
+    assets = list(unique_assets_dict.values())
+    logging.info(f"Se encontraron {len(assets)} assets únicos después de la deduplicación por nombre.")
+    print(f"Assets únicos: {len(assets)}")
     
     # Procesar cada vehículo para obtener sus tiempos.
     processed_data = []
