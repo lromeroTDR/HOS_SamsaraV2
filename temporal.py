@@ -183,7 +183,6 @@ def request_time(session: requests.Session, api_url: str, asset: Dict, start_ms:
     return total_seconds
 
 # --- FUNCIÓN PRINCIPAL DE ORQUESTACIÓN ---
-
 def run_etl():
     """
     Orquesta el proceso de ETL: Extrae, Transforma y Guarda en CSV.
@@ -191,7 +190,6 @@ def run_etl():
     logging.info("Iniciando proceso de ETL.")
     
     # --- 1. Definir Rango de Tiempo ---
-    # Se procesan los datos del día actual, desde las 00:00 hasta el momento de ejecución.
     mexico_tz = pytz.timezone("America/Mexico_City")
     now_utc = datetime.now(pytz.utc)
     start_of_day_local = datetime.now(mexico_tz).replace(hour=0, minute=0, second=0, microsecond=0)
@@ -206,25 +204,30 @@ def run_etl():
     headers = auth_headers()
     session = requests.Session()
     
-    # Obtener datos de proyectos y crear un diccionario para búsqueda rápida.
+    # Obtener datos de proyectos
     df_proyectos = obtener_datos_proyectos_ec(headers, SAMSARA_TAGS_URL)
     proyectos_lookup = {}
+    
     if not df_proyectos.empty:
+        # ELIMINAR DUPLICADOS EN PROYECTOS (Solución al ValueError)
+        df_proyectos['name'] = df_proyectos['name'].str.strip()
+        df_proyectos = df_proyectos.drop_duplicates(subset=['name'], keep='first')
         proyectos_lookup = df_proyectos.set_index('name')[['Proyecto', 'EC']].to_dict('index')
     
-    # Obtener todos los vehículos.
-    assets = obtain_assets(session, API_URL_ASSETS, headers)
-    logging.info(f"Se obtuvieron {len(assets)} vehículos.")
+    # Obtener y limpiar vehículos (assets)
+    assets_raw = obtain_assets(session, API_URL_ASSETS, headers)
+    if assets_raw:
+        df_assets_temp = pd.DataFrame(assets_raw)
+        df_assets_temp['name'] = df_assets_temp['name'].str.strip()
+        # Eliminar duplicados de vehículos
+        df_assets_temp = df_assets_temp.drop_duplicates(subset=['name'], keep='first')
+        assets = df_assets_temp.to_dict('records')
+    else:
+        assets = []
 
-    # FIX: Eliminar assets duplicados por nombre antes de procesarlos.
-    # Se convierte la lista a un diccionario usando 'name' como clave para eliminar duplicados.
-    # Se usa reversed para mantener la primera aparición de cada nombre en la lista original.
-    unique_assets_dict = {asset['name']: asset for asset in reversed(assets)}
-    assets = list(unique_assets_dict.values())
-    logging.info(f"Se encontraron {len(assets)} assets únicos después de la deduplicación por nombre.")
-    print(f"Assets únicos: {len(assets)}")
+    logging.info(f"Se procesarán {len(assets)} vehículos únicos.")
     
-    # Procesar cada vehículo para obtener sus tiempos.
+    # Procesar cada vehículo
     processed_data = []
     for i, asset in enumerate(assets):
         asset_name = asset['name']
@@ -250,16 +253,13 @@ def run_etl():
         })
         
     # --- 3. Carga ---
-    # Convertir la lista de diccionarios a un DataFrame de pandas y guardar en CSV.
     if processed_data:
         df_final = pd.DataFrame(processed_data)
-        logging.info(f"Creando archivo CSV en: {OUTPUT_CSV_PATH}")
-        # Asegurarse de que el directorio de datos exista
         os.makedirs(os.path.dirname(OUTPUT_CSV_PATH), exist_ok=True)
         df_final.to_csv(OUTPUT_CSV_PATH, index=False, encoding='utf-8')
-        logging.info(f"Proceso completado. Se guardaron {len(df_final)} registros en {OUTPUT_CSV_PATH}.")
+        logging.info(f"Proceso completado. Se guardaron {len(df_final)} registros.")
     else:
-        logging.warning("No se procesaron datos, no se generó ningún archivo CSV.")
+        logging.warning("No se procesaron datos.")
 
 # --- PUNTO DE ENTRADA DEL SCRIPT ---
 if __name__ == "__main__":
