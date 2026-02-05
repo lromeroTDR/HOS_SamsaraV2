@@ -171,20 +171,21 @@ def run_etl():
     #start_ms = dt_to_ms(start_of_day_utc)
     #end_ms = dt_to_ms(now_utc)
 
-    # 1. Zona horaria y momento actual
+    # 1. Configuración de tiempo
     mexico_tz = pytz.timezone("America/Mexico_City")
     now_utc = datetime.now(pytz.utc)
-    # 2. Calcular la medianoche de AYER en tiempo local
-    # Restamos un día a la fecha actual de México y reseteamos a las 00:00
-    start_of_yesterday_local = (datetime.now(mexico_tz) - timedelta(days=1)).replace(
+    # 2. MODIFICACIÓN: Calculamos la medianoche de AYER pero mantenemos el nombre de la variable
+    # Restamos 1 día a la fecha actual de México y reseteamos a las 00:00:00
+    start_of_day_local = (datetime.now(mexico_tz) - timedelta(days=1)).replace(
     hour=0, minute=0, second=0, microsecond=0
     )
-    # 3. Convertir ese inicio de ayer a UTC
-    start_of_yesterday_utc = start_of_yesterday_local.astimezone(pytz.utc)
-    # 4. Convertir ambos a milisegundos
-    start_ms = dt_to_ms(start_of_yesterday_utc)
+    # 3. Convertir a UTC (esta es la variable que tu ETL busca en la línea 231)
+    start_of_day_utc = start_of_day_local.astimezone(pytz.utc)
+    # 4. Convertir a milisegundos para los parámetros de la API de Samsara
+    start_ms = dt_to_ms(start_of_day_utc)
     end_ms = dt_to_ms(now_utc)
-    
+
+
     headers = auth_headers()
     session = requests.Session()
     
