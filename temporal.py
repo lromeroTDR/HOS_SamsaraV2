@@ -164,12 +164,25 @@ def request_time(session: requests.Session, api_url: str, asset: Dict, start_ms:
 def run_etl():
     logging.info("Iniciando proceso de ETL.")
     
+    #mexico_tz = pytz.timezone("America/Mexico_City")
+    #now_utc = datetime.now(pytz.utc)
+    #start_of_day_local = datetime.now(mexico_tz).replace(hour=0, minute=0, second=0, microsecond=0)
+    #start_of_day_utc = start_of_day_local.astimezone(pytz.utc)
+    #start_ms = dt_to_ms(start_of_day_utc)
+    #end_ms = dt_to_ms(now_utc)
+
+    # 1. Zona horaria y momento actual
     mexico_tz = pytz.timezone("America/Mexico_City")
     now_utc = datetime.now(pytz.utc)
-    start_of_day_local = datetime.now(mexico_tz).replace(hour=0, minute=0, second=0, microsecond=0)
-    start_of_day_utc = start_of_day_local.astimezone(pytz.utc)
-    
-    start_ms = dt_to_ms(start_of_day_utc)
+    # 2. Calcular la medianoche de AYER en tiempo local
+    # Restamos un día a la fecha actual de México y reseteamos a las 00:00
+    start_of_yesterday_local = (datetime.now(mexico_tz) - timedelta(days=1)).replace(
+    hour=0, minute=0, second=0, microsecond=0
+    )
+    # 3. Convertir ese inicio de ayer a UTC
+    start_of_yesterday_utc = start_of_yesterday_local.astimezone(pytz.utc)
+    # 4. Convertir ambos a milisegundos
+    start_ms = dt_to_ms(start_of_yesterday_utc)
     end_ms = dt_to_ms(now_utc)
     
     headers = auth_headers()
