@@ -112,6 +112,7 @@ def obtain_assets(session: requests.Session, api_url_assets: str, headers: dict)
             break
     return data
 
+
 def request_time(session: requests.Session, api_url: str, asset: Dict, start_ms: int, end_ms: int, headers: dict, mode: str) -> int:
     after = None
     total_seconds = 0
@@ -123,41 +124,68 @@ def request_time(session: requests.Session, api_url: str, asset: Dict, start_ms:
         try:
             r = session.get(api_url, headers=headers, params=params, timeout=30)
             if r.status_code != 200: return 0
-            
             body = r.json()
             trips = body.get('trips', [])
-            
+
             if mode == 'travel':
                 for trip in trips:
-                    s, e = trip.get('startMs'), trip.get('endMs', end_ms)
-                    e = end_ms if e == 9223372036854775807 else e
-                    if isinstance(s, int) and isinstance(e, int) and e >= s:
-                        total_seconds += (e - s) // 1000
+                    s = trip.get('startMs')
+                    e = trip.get('endMs')
+                    
+                    # CORRECCIÓN LÓGICA:
+                    # Si e es None o el valor máximo, el viaje sigue activo -> usamos end_ms (el ahora)
+                    # Pero si e tiene un valor normal, usamos ESE valor, NO el final del reporte.
+                    if e is None or e == 9223372036854775807:
+                        e_final = end_ms 
+                    else:
+                        e_final = e
+                    
+                    if isinstance(s, int) and isinstance(e_final, int) and e_final >= s:
+                        total_seconds += (e_final - s) // 1000
+            
             elif mode == 'stopped':
-                 all_trips.extend(trips)
+                all_trips.extend(trips)
 
             pag = body.get("pagination", {})
             if pag.get("hasNextPage") and pag.get("endCursor"):
                 after = pag.get("endCursor")
-            else:
-                break
-        except Exception:
-            return 0
+            else: break
+        except Exception: return 0
     
-    if mode == 'stopped' and all_trips:
-        all_trips.sort(key=lambda x: x.get('startMs', 0))
-        stopped_time_ms = 0
+    if mode == 'stopped':
         three_hours_in_ms = 3 * 60 * 60 * 1000
-        for i in range(len(all_trips) - 1):
-            end_current = all_trips[i].get('endMs')
-            start_next = all_trips[i+1].get('startMs')
-            if isinstance(end_current, int) and isinstance(start_next, int) and start_next > end_current:
-                stop_duration = start_next - end_current
-                if stop_duration > three_hours_in_ms:
-                    stopped_time_ms += stop_duration
+        stopped_time_ms = 0
+        
+        if not all_trips:
+            # Si no hay viajes, todo el rango es tiempo detenido
+            duration = end_ms - start_ms
+            if duration > three_hours_in_ms: stopped_time_ms = duration
+        else:
+            all_trips.sort(key=lambda x: x.get('startMs', 0))
+            
+            # 1. Gap antes del primer viaje
+            if all_trips[0]['startMs'] - start_ms > three_hours_in_ms:
+                stopped_time_ms += (all_trips[0]['startMs'] - start_ms)
+
+            # 2. Gaps entre viajes
+            for i in range(len(all_trips) - 1):
+                e_curr = all_trips[i].get('endMs')
+                s_next = all_trips[i+1].get('startMs')
+                if e_curr and e_curr != 9223372036854775807:
+                    gap = s_next - e_curr
+                    if gap > three_hours_in_ms: stopped_time_ms += gap
+
+            # 3. Gap DESPUÉS del último viaje (Lo que te faltaba)
+            last_end = all_trips[-1].get('endMs')
+            if last_end and last_end != 9223372036854775807:
+                gap_final = end_ms - last_end
+                if gap_final > three_hours_in_ms:
+                    stopped_time_ms += gap_final
+
         total_seconds = stopped_time_ms // 1000
             
     return total_seconds
+
 
 # --- ORQUESTACIÓN ---
 
